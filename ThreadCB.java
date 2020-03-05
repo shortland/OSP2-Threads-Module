@@ -30,10 +30,6 @@ import osp.Resources.*;
  * @OSPProject Threads
  */
 public class ThreadCB extends IflThreadCB {
-
-    // TODO: check if GenericList works instead of ArrayList
-    // TODO: use MyOut.print(this, "Resuming " + this), .atWarning(), .atError()...
-
     /**
      * Enums of the different ready queues Q1, Q2, Q3
      */
@@ -44,10 +40,14 @@ public class ThreadCB extends IflThreadCB {
     /**
      * Static variables
      * 
+     * @see #cyclesForQueues - The different cycles that are possible and which
+     *      queue they should correspond to. This is populated by init() - see there
+     *      for configuring.
      * @see #readyQueues - the queue which contains the 3 subqueues Q1, Q2, and Q3.
      * @see #timeSlice - the amount of clock ticks each time slice should be
      */
-    private static Map<String, ArrayList<E>> readyQueues;
+    private static Map<QueueLevel, ArrayList<Integer>> cyclesForQueues;
+    private static Map<QueueLevel, ArrayList<E>> readyQueues;
     private static int timeSlice;
 
     /**
@@ -59,11 +59,7 @@ public class ThreadCB extends IflThreadCB {
     private int dispatchCount;
 
     /**
-     * The thread constructor. Must call
-     * 
-     * super();
-     * 
-     * as its first statement.
+     * The thread constructor. Must call super() as its first statement.
      * 
      * @OSPProject Threads
      */
@@ -87,14 +83,20 @@ public class ThreadCB extends IflThreadCB {
      */
     public static void init() {
         /**
+         * Initialize the map of queue levels and which cycles they correspond to.
+         */
+        cyclesForQueues = new HashMap<QueueLevel, ArrayList<Integer>>();
+        cyclesForQueues.put(QueueLevel.Q1, new ArrayList<Integer>(List.of(1, 2, 3)));
+        cyclesForQueues.put(QueueLevel.Q2, new ArrayList<Integer>(List.of(4, 5)));
+        cyclesForQueues.put(QueueLevel.Q3, new ArrayList<Integer>(List.of(6)));
+
+        /**
          * Initialize the ready queue
          */
-        readyQueues = new HashMap<String, ArrayList<E>>();
+        readyQueues = new HashMap<QueueLevel, ArrayList<E>>();
 
         /**
          * Add the 3 sub-queues Q1 -> index 0, Q2 -> index 1, Q3 -> index 2.
-         * 
-         * TODO: enumerate thru the enums rather than hard coding them like this
          */
         readyQueues.put(QueueLevel.Q1, new ArrayList<>());
         readyQueues.put(QueueLevel.Q2, new ArrayList<>());
@@ -124,7 +126,7 @@ public class ThreadCB extends IflThreadCB {
      */
     static public ThreadCB do_create(TaskCB task) {
         // your code goes here
-
+        return null;
     }
 
     /**
@@ -142,7 +144,7 @@ public class ThreadCB extends IflThreadCB {
      */
     public void do_kill() {
         // your code goes here
-
+        return;
     }
 
     /**
@@ -162,7 +164,7 @@ public class ThreadCB extends IflThreadCB {
      */
     public void do_suspend(Event event) {
         // your code goes here
-
+        return;
     }
 
     /**
@@ -221,7 +223,7 @@ public class ThreadCB extends IflThreadCB {
      */
     public static int do_dispatch() {
         // your code goes here
-
+        return -1;
     }
 
     /**
@@ -233,7 +235,7 @@ public class ThreadCB extends IflThreadCB {
      */
     public static void atError() {
         // your code goes here
-
+        return;
     }
 
     /**
@@ -246,7 +248,7 @@ public class ThreadCB extends IflThreadCB {
      */
     public static void atWarning() {
         // your code goes here
-
+        return;
     }
 
     /**
