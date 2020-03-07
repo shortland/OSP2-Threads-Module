@@ -1,9 +1,3 @@
-package osp.Threads;
-
-import osp.IFLModules.*;
-import osp.Utilities.*;
-import osp.Hardware.*;
-
 /**
  * Ilan Kleiman
  * 110942711
@@ -12,6 +6,12 @@ import osp.Hardware.*;
  * and without consulting any external sources that providefull or partial solutions to a similar project.
  * I understand that breaking this pledge will result in an “F” for the entire course.
  */
+
+package osp.Threads;
+
+import osp.IFLModules.*;
+import osp.Utilities.*;
+import osp.Hardware.*;
 
 /**
  * The timer interrupt handler. This class is called upon to handle timer

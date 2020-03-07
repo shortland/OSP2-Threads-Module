@@ -1,3 +1,12 @@
+/**
+ * Ilan Kleiman
+ * 110942711
+ * 
+ * I pledge my honor that all parts of this project were done by me individually, withoutcollaboration with anyone,
+ * and without consulting any external sources that providefull or partial solutions to a similar project.
+ * I understand that breaking this pledge will result in an “F” for the entire course.
+ */
+
 package osp.Threads;
 
 import java.util.Vector;
@@ -15,15 +24,6 @@ import osp.Memory.*;
 import osp.Resources.*;
 
 /**
- * Ilan Kleiman
- * 110942711
- * 
- * I pledge my honor that all parts of this project were done by me individually, withoutcollaboration with anyone,
- * and without consulting any external sources that providefull or partial solutions to a similar project.
- * I understand that breaking this pledge will result in an “F” for the entire course.
- */
-
-/**
  * This class is responsible for actions related to threads, including creating,
  * killing, dispatching, resuming, and suspending threads.
  * 
@@ -34,7 +34,13 @@ public class ThreadCB extends IflThreadCB {
      * Enums of the different ready queues Q1, Q2, Q3
      */
     private static enum QueueLevel {
-        Q1, Q2, Q3
+        Q1, Q2, Q3;
+
+        private static QueueLevel[] enums = values();
+
+        public QueueLevel next() {
+            return enums[(this.ordinal() + 1) % enums.length];
+        }
     }
 
     /**
@@ -45,10 +51,12 @@ public class ThreadCB extends IflThreadCB {
      *      for configuring.
      * @see #readyQueues - the queue which contains the 3 subqueues Q1, Q2, and Q3.
      * @see #timeSlice - the amount of clock ticks each time slice should be
+     * @see #currentCycle - the current cycle number that the system is on.
      */
     private static Map<QueueLevel, ArrayList<Integer>> cyclesForQueues;
     private static Map<QueueLevel, ArrayList<E>> readyQueues;
     private static int timeSlice;
+    private static int currentCycle;
 
     /**
      * Instance variables
@@ -56,7 +64,7 @@ public class ThreadCB extends IflThreadCB {
      * @see #dispatchCount - the number of times the current thread has been
      *      dispatched
      */
-    private int dispatchCount;
+    public int dispatchCount;
 
     /**
      * The thread constructor. Must call super() as its first statement.
@@ -125,8 +133,32 @@ public class ThreadCB extends IflThreadCB {
      * @OSPProject Threads
      */
     static public ThreadCB do_create(TaskCB task) {
-        // your code goes here
-        return null;
+        if (task == null || task.getThreadCount() >= MaxThreadsPerTask) {
+            MyOut.print("Attempted to create a thread with a null task.");
+            dispatch();
+            return null;
+        }
+
+        ThreadCB thread = new ThreadCB();
+        thread.setTask(task);
+        thread.setStatus(ThreadReady);
+
+        if (task.addThread(thread) != SUCCESS) {
+            thread.setTask(null);
+            thread.setStatus(null);
+
+            dispatch();
+            return null;
+        }
+
+        /**
+         * Move the thread to its appropriate ready queue. It should move it to Q1
+         * initially.
+         */
+        move_to_ready_queue(thread);
+
+        dispatch();
+        return thread;
     }
 
     /**
@@ -163,7 +195,40 @@ public class ThreadCB extends IflThreadCB {
      * @OSPProject Threads
      */
     public void do_suspend(Event event) {
-        // your code goes here
+        if (getStatus() == ThreadRunning) {
+            // set the new status of thread to waiting
+            setStatus(ThreadWaiting);
+
+            // attempt to set the current thread the cpu is running to null
+            if (MMU.getPTBR() == null) {
+                MyOut.atWarning(this, "MMU.getPTBR() returned null when expected a non-null object");
+            } else {
+                MMU.setPTBR(null);
+            }
+
+            // attempt to set the task of the thread to null
+            getTask().setCurrentThread(null);
+        } else if (getStatus() >= ThreadWaiting) {
+            // wait moreso b/c of the suspend
+            setStatus(getStatus() + 1);
+        } else {
+            // in the case where you try to suspend a killed or other unknown status.
+            setStatus(ThreadWaiting);
+        }
+
+        // TODO: ??
+        if (!event.contains(this)) {
+            event.addThread(this);
+        }
+
+        /**
+         * NOTE: says we need to make sure the thread is in the right waiting queue, but
+         * we shouldn't have to update that... Since no dispatches directly occur here -
+         * then no thread increment of dispatches, which means we shouldn't have to move
+         * where the thread exists in w/e queue.
+         */
+
+        dispatch();
         return;
     }
 
@@ -181,38 +246,56 @@ public class ThreadCB extends IflThreadCB {
          * Check if the thread is in a status that we can resume from
          */
         if (getStatus() < ThreadWaiting) {
-            MyOut.atWarning(this, "Attempted to resume thread which wasn't waiting: " + this);
+            MyOut.print(this, "Attempted to resume thread which wasn't waiting: " + this);
             return;
         }
 
         /**
-         * Set the thread's new status
+         * Set the thread's new status if was waiting, then now make it ready.
          */
         if (getStatus() == ThreadWaiting) {
             MyOut.print(this, "Setting thread status to ThreadReady");
             setStatus(ThreadReady);
-        } else if (getStatus() > ThreadWaiting) {
+            move_to_ready_queue(this);
+
+            dispatch();
+            return;
+        }
+
+        /**
+         * The thread was waiting,.. Now waiting less than before, and if that means
+         * it's now thread-ready - also add it to the ready queue.
+         */
+        if (getStatus() > ThreadWaiting) {
             MyOut.print(this, "Setting thread status to sub ThreadWaiting: " + (getStatus() - 1));
             setStatus(getStatus() - 1);
+
+            /**
+             * If the new status of the thread is now ready, then it can be added to the
+             * ready queue.
+             * 
+             * NOTE: not sure if this is correct...
+             */
+            if (getStatus() == ThreadReady) {
+                move_to_ready_queue(this);
+            }
+
+            dispatch();
+            return;
         }
 
         /**
-         * If the thread is ThreadReady status, then add it to our ready Queue
-         */
-        if (getStatus() == ThreadReady) {
-            move_to_ready_queue(this);
-        }
-
-        /**
-         * Call dispatch so that the thread can be dispatched onto the CPU for execution
+         * One of the prior three conditions should've been met... This technically
+         * shouldn't be reachable.
          */
         dispatch();
+        return;
     }
 
     /**
      * Selects a thread from the run queue and dispatches it.
      * 
-     * If there is just one theread ready to run, reschedule the thread currently on
+     * If there is just one thread ready to run, reschedule the thread currently on
      * the processor.
      * 
      * In addition to setting the correct thread status it must update the PTBR.
@@ -222,8 +305,48 @@ public class ThreadCB extends IflThreadCB {
      * @OSPProject Threads
      */
     public static int do_dispatch() {
-        // your code goes here
-        return -1;
+        if (get_total_threads() == 0) {
+            return FAILURE;
+        } else if (get_total_threads() == 1) {
+            if (MMU.getPTBR() != null && MMU.getPTBR().getTask() != null
+                    && MMU.getPTBR().getTask().getCurrentThread() != null) {
+                /**
+                 * There is 1 thread on the list, and there is 1 thread running. Therefore the
+                 * running thread is the 1 thread in the list. Reschedule it simply by
+                 * increasing that thread's dispatch count, the current clock cycle, and setting
+                 * the timer.
+                 */
+                MMU.getPTBR().getTask().getCurrentThread().dispatchCount++;
+                currentCycle++;
+                HTimer.set(timeSlice);
+                move_to_ready_queue(MMU.getPTBR().getTask().getCurrentThread());
+
+                return SUCCESS;
+            } else {
+                /**
+                 * There is 1 thread on the list, and no other threads running. Dispatch the 1
+                 * thread.
+                 */
+                ThreadCB firstThread = rdQueue.remove(0);
+                newThread.setStatus(ThreadRunning);
+                MMU.setPTBR(newThread.getTask().getPageTable());
+                newThread.getTask().setCurrentThread(newThread);
+            }
+        } else {
+            ThreadCB runningThread = MMU.getPTBR().getTask().getCurrentThread();
+            runningThread.getTask().setCurrentThread(null);
+            MMU.setPTBR(null);
+            // TODO: move this above mmu.setptbr if possible
+            runningThread.setStatus(ThreadReady);
+            move_to_ready_queue(MMU.getPTBR().getTask().getCurrentThread());
+        }
+
+        /**
+         * Set a timer to interrupt hardware after specified clock cycles
+         */
+        HTimer.set(timeSlice);
+
+        return SUCCESS;
     }
 
     /**
@@ -234,7 +357,6 @@ public class ThreadCB extends IflThreadCB {
      * @OSPProject Threads
      */
     public static void atError() {
-        // your code goes here
         return;
     }
 
@@ -247,7 +369,6 @@ public class ThreadCB extends IflThreadCB {
      * @OSPProject Threads
      */
     public static void atWarning() {
-        // your code goes here
         return;
     }
 
@@ -264,23 +385,70 @@ public class ThreadCB extends IflThreadCB {
      * 
      * -> Threads in Q3 stay there until termination.
      * 
-     * @param thread
+     * @param ThreadCB thread - thread to move to a ready queue
      */
     private static void move_to_ready_queue(ThreadCB thread) {
-        if (thread.dispatchCount == 0) {
-            /**
-             * Check if the thread exists in any of the other 2 queues before we put it in.
-             */
-            if ((readyQueues.get(QueueLevel.Q2)).contains(thread)) {
-                (readyQueues.get(QueueLevel.Q2)).remove(thread);
-            } else if ((readyQueues.get(QueueLevel.Q3)).contains(thread)) {
-                (readyQueues.get(QueueLevel.Q3)).remove(thread);
-            }
+        if (thread.dispatchCount < 4) {
+            thread.setPriority(QueueLevel.Q1);
+            (readyQueues.get(QueueLevel.Q1)).add(thread);
+        } else if (thread.dispatchCount < 8) {
+            thread.setPriority(QueueLevel.Q2);
+            (readyQueues.get(QueueLevel.Q2)).add(thread);
+        } else {
+            thread.setPriority(QueueLevel.Q3);
+            (readyQueues.get(QueueLevel.Q3)).add(thread);
+        }
+    }
 
-            /**
-             * Then finally add the thread to it's destination list
-             */
-            (readyQueues.get(QueueLevel.Q1)).append(thread);
+    /**
+     * Get the total (sum) number of threads in all of the queues.
+     * 
+     * @return
+     */
+    private static int get_total_threads() {
+        return (readyQueues.get(QueueLevel.Q1)).size() + (readyQueues.get(QueueLevel.Q2)).size()
+                + (readyQueues.get(QueueLevel.Q3)).size();
+    }
+
+    /**
+     * Determine which queue level the current cycle corresponds to.
+     * 
+     * @return QueueLevel
+     */
+    private static QueueLevel get_current_queue_level() {
+        if ((cyclesForQueues.get(QueueLevel.Q1)).contains(currentCycle)) {
+            return QueueLevel.Q1;
+        } else if ((cyclesForQueues.get(QueueLevel.Q2)).contains(currentCycle)) {
+            return QueueLevel.Q2;
+        } else if ((cyclesForQueues.get(QueueLevel.Q3)).contains(currentCycle)) {
+            return QueueLevel.Q3;
+        } else {
+            return null;
+        }
+    }
+
+    /**
+     * Get the next thread to dispatch in the ready queues.
+     * 
+     * @param QueueLevel level - the queue level to get a thread from
+     * @return
+     */
+    private static ThreadCB get_next_thread_at_level(QueueLevel level) {
+        if ((readyQueues.get(level)).size() > 0) {
+            return (readyQueues.get(level)).remove(0);
+        } else {
+            if (level == QueueLevel.Q3) {
+                /**
+                 * All Queues are empty, and there's nothing to do.
+                 */
+                return null;
+            } else {
+                /**
+                 * Recursively go to the next queue level and determine if that queue level has
+                 * a thread to return.
+                 */
+                return get_next_thread_at_level(level.next());
+            }
         }
     }
 
