@@ -196,7 +196,6 @@ public class ThreadCB extends IflThreadCB {
      */
     public void do_suspend(Event event) {
         if (getStatus() == ThreadRunning) {
-            // set the new status of thread to waiting
             setStatus(ThreadWaiting);
 
             // attempt to set the current thread the cpu is running to null
@@ -305,48 +304,57 @@ public class ThreadCB extends IflThreadCB {
      * @OSPProject Threads
      */
     public static int do_dispatch() {
-        if (get_total_threads() == 0) {
+        if (get_total_ready_threads() == 0) {
+            MyOut.print("There are no threads ready to dispatch.");
             return FAILURE;
-        } else if (get_total_threads() == 1) {
-            if (MMU.getPTBR() != null && MMU.getPTBR().getTask() != null
-                    && MMU.getPTBR().getTask().getCurrentThread() != null) {
-                /**
-                 * There is 1 thread on the list, and there is 1 thread running. Therefore the
-                 * running thread is the 1 thread in the list. Reschedule it simply by
-                 * increasing that thread's dispatch count, the current clock cycle, and setting
-                 * the timer.
-                 */
-                MMU.getPTBR().getTask().getCurrentThread().dispatchCount++;
-                currentCycle++;
-                HTimer.set(timeSlice);
-                move_to_ready_queue(MMU.getPTBR().getTask().getCurrentThread());
-
-                return SUCCESS;
-            } else {
-                /**
-                 * There is 1 thread on the list, and no other threads running. Dispatch the 1
-                 * thread.
-                 */
-                ThreadCB firstThread = rdQueue.remove(0);
-                newThread.setStatus(ThreadRunning);
-                MMU.setPTBR(newThread.getTask().getPageTable());
-                newThread.getTask().setCurrentThread(newThread);
-            }
-        } else {
-            ThreadCB runningThread = MMU.getPTBR().getTask().getCurrentThread();
-            runningThread.getTask().setCurrentThread(null);
-            MMU.setPTBR(null);
-            // TODO: move this above mmu.setptbr if possible
-            runningThread.setStatus(ThreadReady);
-            move_to_ready_queue(MMU.getPTBR().getTask().getCurrentThread());
         }
 
-        /**
-         * Set a timer to interrupt hardware after specified clock cycles
-         */
-        HTimer.set(timeSlice);
+        if (MMU.getPTBR() != null && MMU.getPTBR().getTask() != null
+                && MMU.getPTBR().getTask().getCurrentThread() != null) {
 
-        return SUCCESS;
+            /**
+             * There is currently a thread running, so reschedule the currently running
+             * thread, and dispatch a new one from the appropriate ready queue.
+             */
+            ThreadCB currentThread = MMU.getPTBR().getTask().getCurrentThread();
+            currentThread.getTask().setCurrentThread(null);
+            move_to_ready_queue(currentThread);
+
+            // Now get the next thread up & dispatch it
+            ThreadCB nextThread = get_next_thread_at_level(get_current_queue_level());
+            if (nextThread == null) {
+                MyOut.print("Couldn't find a new thread to dispatch.");
+                return FAILURE;
+            }
+
+            nextThread.setStatus(ThreadRunning);
+            MMU.setPTBR(nextThread.getTask().getPageTable());
+            nextThread.getTask().setCurrentThread(nextThread);
+
+            // set hardware interrupt to occur in specified timeslice.
+            HTimer.set(timeSlice);
+
+            return SUCCESS;
+        } else {
+            /**
+             * There are no threads currently running, so only get a thread from the ready
+             * queue and dispatch it.
+             */
+            ThreadCB nextThread = get_next_thread_at_level(get_current_queue_level());
+            if (nextThread == null) {
+                MyOut.print("Couldn't find a new first thread to dispatch.");
+                return FAILURE;
+            }
+
+            nextThread.setStatus(ThreadRunning);
+            MMU.setPTBR(nextThread.getTask().getPageTable());
+            nextThread.getTask().setCurrentThread(nextThread);
+
+            // set hardware interrupt to occur in specified timeslice.
+            HTimer.set(timeSlice);
+
+            return SUCCESS;
+        }
     }
 
     /**
@@ -405,7 +413,7 @@ public class ThreadCB extends IflThreadCB {
      * 
      * @return
      */
-    private static int get_total_threads() {
+    private static int get_total_ready_threads() {
         return (readyQueues.get(QueueLevel.Q1)).size() + (readyQueues.get(QueueLevel.Q2)).size()
                 + (readyQueues.get(QueueLevel.Q3)).size();
     }
@@ -453,7 +461,3 @@ public class ThreadCB extends IflThreadCB {
     }
 
 }
-
-/*
- * Feel free to add local classes to improve the readability of your code
- */
