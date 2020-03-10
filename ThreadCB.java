@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.Map;
 import java.util.HashMap;
+import java.util.Arrays;
 import osp.Utilities.*;
 import osp.IFLModules.*;
 import osp.Tasks.*;
@@ -54,7 +55,7 @@ public class ThreadCB extends IflThreadCB {
      * @see #currentCycle - the current cycle number that the system is on.
      */
     private static Map<QueueLevel, ArrayList<Integer>> cyclesForQueues;
-    private static Map<QueueLevel, ArrayList<E>> readyQueues;
+    private static Map<QueueLevel, ArrayList<ThreadCB>> readyQueues;
     private static int timeSlice;
     private static int currentCycle;
 
@@ -94,21 +95,21 @@ public class ThreadCB extends IflThreadCB {
          * Initialize the map of queue levels and which cycles they correspond to.
          */
         cyclesForQueues = new HashMap<QueueLevel, ArrayList<Integer>>();
-        cyclesForQueues.put(QueueLevel.Q1, new ArrayList<Integer>(List.of(1, 2, 3)));
-        cyclesForQueues.put(QueueLevel.Q2, new ArrayList<Integer>(List.of(4, 5)));
-        cyclesForQueues.put(QueueLevel.Q3, new ArrayList<Integer>(List.of(6)));
+        cyclesForQueues.put(QueueLevel.Q1, new ArrayList<Integer>(Arrays.asList(1, 2, 3)));
+        cyclesForQueues.put(QueueLevel.Q2, new ArrayList<Integer>(Arrays.asList(4, 5)));
+        cyclesForQueues.put(QueueLevel.Q3, new ArrayList<Integer>(Arrays.asList(6)));
 
         /**
          * Initialize the ready queue
          */
-        readyQueues = new HashMap<QueueLevel, ArrayList<E>>();
+        readyQueues = new HashMap<QueueLevel, ArrayList<ThreadCB>>();
 
         /**
          * Add the 3 sub-queues Q1 -> index 0, Q2 -> index 1, Q3 -> index 2.
          */
-        readyQueues.put(QueueLevel.Q1, new ArrayList<>());
-        readyQueues.put(QueueLevel.Q2, new ArrayList<>());
-        readyQueues.put(QueueLevel.Q3, new ArrayList<>());
+        readyQueues.put(QueueLevel.Q1, new ArrayList<ThreadCB>());
+        readyQueues.put(QueueLevel.Q2, new ArrayList<ThreadCB>());
+        readyQueues.put(QueueLevel.Q3, new ArrayList<ThreadCB>());
 
         /**
          * Set the time slice - instructed by manual (in clock ticks)
@@ -134,7 +135,7 @@ public class ThreadCB extends IflThreadCB {
      */
     static public ThreadCB do_create(TaskCB task) {
         if (task == null || task.getThreadCount() >= MaxThreadsPerTask) {
-            MyOut.print("Attempted to create a thread with a null task.");
+            MyOut.print(task, "Attempted to create a thread with a null task.");
             dispatch();
             return null;
         }
@@ -145,7 +146,7 @@ public class ThreadCB extends IflThreadCB {
 
         if (task.addThread(thread) != SUCCESS) {
             thread.setTask(null);
-            thread.setStatus(null);
+            thread.setStatus(-1);
 
             dispatch();
             return null;
@@ -175,7 +176,37 @@ public class ThreadCB extends IflThreadCB {
      * @OSPProject Threads
      */
     public void do_kill() {
-        // your code goes here
+        if (getStatus() == ThreadRunning) {
+            /**
+             * If the current thread is running, then kill it and remove it from MMU.
+             */
+            getTask().setCurrentThread(null);
+            MMU.setPTBR(null);
+        } else if (getStatus() == ThreadReady) {
+            remove_thread_from_queue(this);
+        }
+
+        // cancel any pending io requests
+        for (int i = 0; i < Device.getTableSize(); ++i) {
+            Device.get(i).cancelPendingIO(this);
+        }
+
+        // set the current thread's status to kill
+        setStatus(ThreadKill);
+
+        // release resources held by thread
+        ResourceCB.giveupResources(this);
+
+        // remove the thread from the task
+        getTask().removeThread(this);
+
+        // TODO: maybe change to while != 0
+        if (getTask().getThreadCount() == 0) {
+            getTask().kill();
+        }
+
+        dispatch();
+
         return;
     }
 
@@ -200,7 +231,7 @@ public class ThreadCB extends IflThreadCB {
 
             // attempt to set the current thread the cpu is running to null
             if (MMU.getPTBR() == null) {
-                MyOut.atWarning(this, "MMU.getPTBR() returned null when expected a non-null object");
+                MyOut.print(this, "MMU.getPTBR() returned null when expected a non-null object");
             } else {
                 MMU.setPTBR(null);
             }
@@ -305,7 +336,7 @@ public class ThreadCB extends IflThreadCB {
      */
     public static int do_dispatch() {
         if (get_total_ready_threads() == 0) {
-            MyOut.print("There are no threads ready to dispatch.");
+            MyOut.print(null, "There are no threads ready to dispatch.");
             return FAILURE;
         }
 
@@ -323,7 +354,7 @@ public class ThreadCB extends IflThreadCB {
             // Now get the next thread up & dispatch it
             ThreadCB nextThread = get_next_thread_at_level(get_current_queue_level());
             if (nextThread == null) {
-                MyOut.print("Couldn't find a new thread to dispatch.");
+                MyOut.print(nextThread, "Couldn't find a new thread to dispatch.");
                 return FAILURE;
             }
 
@@ -342,7 +373,7 @@ public class ThreadCB extends IflThreadCB {
              */
             ThreadCB nextThread = get_next_thread_at_level(get_current_queue_level());
             if (nextThread == null) {
-                MyOut.print("Couldn't find a new first thread to dispatch.");
+                MyOut.print(nextThread, "Couldn't find a new first thread to dispatch.");
                 return FAILURE;
             }
 
@@ -397,13 +428,13 @@ public class ThreadCB extends IflThreadCB {
      */
     private static void move_to_ready_queue(ThreadCB thread) {
         if (thread.dispatchCount < 4) {
-            thread.setPriority(QueueLevel.Q1);
+            // thread.setPriority(QueueLevel.Q1);
             (readyQueues.get(QueueLevel.Q1)).add(thread);
         } else if (thread.dispatchCount < 8) {
-            thread.setPriority(QueueLevel.Q2);
+            // thread.setPriority(QueueLevel.Q2);
             (readyQueues.get(QueueLevel.Q2)).add(thread);
         } else {
-            thread.setPriority(QueueLevel.Q3);
+            // thread.setPriority(QueueLevel.Q3);
             (readyQueues.get(QueueLevel.Q3)).add(thread);
         }
     }
@@ -411,7 +442,7 @@ public class ThreadCB extends IflThreadCB {
     /**
      * Get the total (sum) number of threads in all of the queues.
      * 
-     * @return
+     * @return int
      */
     private static int get_total_ready_threads() {
         return (readyQueues.get(QueueLevel.Q1)).size() + (readyQueues.get(QueueLevel.Q2)).size()
@@ -439,7 +470,7 @@ public class ThreadCB extends IflThreadCB {
      * Get the next thread to dispatch in the ready queues.
      * 
      * @param QueueLevel level - the queue level to get a thread from
-     * @return
+     * @return ThreadCB
      */
     private static ThreadCB get_next_thread_at_level(QueueLevel level) {
         if ((readyQueues.get(level)).size() > 0) {
@@ -460,4 +491,26 @@ public class ThreadCB extends IflThreadCB {
         }
     }
 
+    /**
+     * Remove the specified thread from its ready queue.
+     * 
+     * @param ThreadCB
+     * @return SUCCESS or FAILURE
+     */
+    private static int remove_thread_from_queue(ThreadCB thread) {
+        if ((readyQueues.get(QueueLevel.Q1)).contains(thread)) {
+            (readyQueues.get(QueueLevel.Q1)).remove(thread);
+            return SUCCESS;
+        } else if ((readyQueues.get(QueueLevel.Q2)).contains(thread)) {
+            (readyQueues.get(QueueLevel.Q2)).remove(thread);
+            return SUCCESS;
+        } else if ((readyQueues.get(QueueLevel.Q3)).contains(thread)) {
+            (readyQueues.get(QueueLevel.Q3)).remove(thread);
+            return SUCCESS;
+        } else {
+            MyOut.print(thread,
+                    "Unable to remove the specified thread from its queue. It does not exist in any ready queue.");
+            return FAILURE;
+        }
+    }
 }
