@@ -206,10 +206,8 @@ public class ThreadCB extends IflThreadCB {
         // remove the thread from the task
         getTask().removeThread(this);
 
-        // TODO: maybe change to while != 0
-        if (getTask().getThreadCount() == 0) {
-            getTask().kill();
-        }
+        // kill current task
+        getTask().kill();
 
         dispatch();
         return;
@@ -245,17 +243,9 @@ public class ThreadCB extends IflThreadCB {
             setStatus(ThreadWaiting);
         }
 
-        // TODO: ??
         if (!event.contains(this)) {
             event.addThread(this);
         }
-
-        /**
-         * NOTE: says we need to make sure the thread is in the right waiting queue, but
-         * we shouldn't have to update that... Since no dispatches directly occur here -
-         * then no thread increment of dispatches, which means we shouldn't have to move
-         * where the thread exists in w/e queue.
-         */
 
         dispatch();
         return;
@@ -304,8 +294,6 @@ public class ThreadCB extends IflThreadCB {
             /**
              * If the new status of the thread is now ready, then it can be added to the
              * ready queue.
-             * 
-             * NOTE: not sure if this is correct...
              */
             if (getStatus() == ThreadReady) {
                 move_to_ready_queue(this);
@@ -336,11 +324,6 @@ public class ThreadCB extends IflThreadCB {
      * @OSPProject Threads
      */
     public static int do_dispatch() {
-        // if (get_total_ready_threads() == 0) {
-        // MyOut.print(null, "There are no threads ready to dispatch.");
-        // return FAILURE;
-        // }
-
         if (MMU.getPTBR() != null && MMU.getPTBR().getTask() != null
                 && MMU.getPTBR().getTask().getCurrentThread() != null) {
 
@@ -356,7 +339,6 @@ public class ThreadCB extends IflThreadCB {
             // Now get the next thread up & dispatch it
             ThreadCB nextThread = get_next_thread_at_level(get_current_queue_level());
             if (nextThread == null) {
-                // MyOut.print(nextThread, "Couldn't find a new thread to dispatch.");
                 // attempt to set the current thread the cpu is running to null
                 MMU.setPTBR(null);
                 currentThread.getTask().setCurrentThread(null);
@@ -378,7 +360,6 @@ public class ThreadCB extends IflThreadCB {
              */
             ThreadCB nextThread = get_next_thread_at_level(get_current_queue_level());
             if (nextThread == null) {
-                // MyOut.print(nextThread, "Couldn't find a new first thread to dispatch.");
                 // attempt to set the current thread the cpu is running to null
                 MMU.setPTBR(null);
                 return FAILURE;
@@ -435,18 +416,14 @@ public class ThreadCB extends IflThreadCB {
      */
     private static void move_to_ready_queue(ThreadCB thread) {
         if (thread.getStatus() != ThreadReady) {
-            // MyOut.atError();
             return;
         }
 
         if (thread.dispatchCount < 4) {
-            // thread.setPriority(QueueLevel.Q1);
             (readyQueues.get(QueueLevel.Q1)).add(thread);
         } else if (thread.dispatchCount < 8) {
-            // thread.setPriority(QueueLevel.Q2);
             (readyQueues.get(QueueLevel.Q2)).add(thread);
         } else {
-            // thread.setPriority(QueueLevel.Q3);
             (readyQueues.get(QueueLevel.Q3)).add(thread);
         }
     }
