@@ -26,8 +26,7 @@ public class TimerInterruptHandler extends IflTimerInterruptHandler {
      * @OSPProject Threads
      */
     public void do_handleInterrupt() {
-        // your code goes here
-
+        IflThreadCB.dispatch();
     }
 
     /*

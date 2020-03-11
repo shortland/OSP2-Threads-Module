@@ -115,6 +115,11 @@ public class ThreadCB extends IflThreadCB {
          * Set the time slice - instructed by manual (in clock ticks)
          */
         timeSlice = 80;
+
+        /**
+         * Set the current clock cycle to 1
+         */
+        currentCycle = 1;
     }
 
     /**
@@ -136,6 +141,7 @@ public class ThreadCB extends IflThreadCB {
     static public ThreadCB do_create(TaskCB task) {
         if (task == null || task.getThreadCount() >= MaxThreadsPerTask) {
             MyOut.print(task, "Attempted to create a thread with a null task.");
+
             dispatch();
             return null;
         }
@@ -206,7 +212,6 @@ public class ThreadCB extends IflThreadCB {
         }
 
         dispatch();
-
         return;
     }
 
@@ -230,13 +235,7 @@ public class ThreadCB extends IflThreadCB {
             setStatus(ThreadWaiting);
 
             // attempt to set the current thread the cpu is running to null
-            if (MMU.getPTBR() == null) {
-                MyOut.print(this, "MMU.getPTBR() returned null when expected a non-null object");
-            } else {
-                MMU.setPTBR(null);
-            }
-
-            // attempt to set the task of the thread to null
+            MMU.setPTBR(null);
             getTask().setCurrentThread(null);
         } else if (getStatus() >= ThreadWaiting) {
             // wait moreso b/c of the suspend
@@ -277,6 +276,8 @@ public class ThreadCB extends IflThreadCB {
          */
         if (getStatus() < ThreadWaiting) {
             MyOut.print(this, "Attempted to resume thread which wasn't waiting: " + this);
+
+            dispatch();
             return;
         }
 
@@ -335,10 +336,10 @@ public class ThreadCB extends IflThreadCB {
      * @OSPProject Threads
      */
     public static int do_dispatch() {
-        if (get_total_ready_threads() == 0) {
-            MyOut.print(null, "There are no threads ready to dispatch.");
-            return FAILURE;
-        }
+        // if (get_total_ready_threads() == 0) {
+        // MyOut.print(null, "There are no threads ready to dispatch.");
+        // return FAILURE;
+        // }
 
         if (MMU.getPTBR() != null && MMU.getPTBR().getTask() != null
                 && MMU.getPTBR().getTask().getCurrentThread() != null) {
@@ -349,12 +350,16 @@ public class ThreadCB extends IflThreadCB {
              */
             ThreadCB currentThread = MMU.getPTBR().getTask().getCurrentThread();
             currentThread.getTask().setCurrentThread(null);
+            currentThread.setStatus(ThreadReady);
             move_to_ready_queue(currentThread);
 
             // Now get the next thread up & dispatch it
             ThreadCB nextThread = get_next_thread_at_level(get_current_queue_level());
             if (nextThread == null) {
-                MyOut.print(nextThread, "Couldn't find a new thread to dispatch.");
+                // MyOut.print(nextThread, "Couldn't find a new thread to dispatch.");
+                // attempt to set the current thread the cpu is running to null
+                MMU.setPTBR(null);
+                currentThread.getTask().setCurrentThread(null);
                 return FAILURE;
             }
 
@@ -373,7 +378,9 @@ public class ThreadCB extends IflThreadCB {
              */
             ThreadCB nextThread = get_next_thread_at_level(get_current_queue_level());
             if (nextThread == null) {
-                MyOut.print(nextThread, "Couldn't find a new first thread to dispatch.");
+                // MyOut.print(nextThread, "Couldn't find a new first thread to dispatch.");
+                // attempt to set the current thread the cpu is running to null
+                MMU.setPTBR(null);
                 return FAILURE;
             }
 
@@ -427,6 +434,11 @@ public class ThreadCB extends IflThreadCB {
      * @param ThreadCB thread - thread to move to a ready queue
      */
     private static void move_to_ready_queue(ThreadCB thread) {
+        if (thread.getStatus() != ThreadReady) {
+            // MyOut.atError();
+            return;
+        }
+
         if (thread.dispatchCount < 4) {
             // thread.setPriority(QueueLevel.Q1);
             (readyQueues.get(QueueLevel.Q1)).add(thread);
@@ -473,6 +485,10 @@ public class ThreadCB extends IflThreadCB {
      * @return ThreadCB
      */
     private static ThreadCB get_next_thread_at_level(QueueLevel level) {
+        if (level == null) {
+            return null;
+        }
+
         if ((readyQueues.get(level)).size() > 0) {
             return (readyQueues.get(level)).remove(0);
         } else {
